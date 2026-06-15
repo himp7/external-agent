@@ -1,9 +1,11 @@
 services:
   - type: web
-    name: local-concierge-agent
+    name: local-concierge-a2a
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn __main__:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: GROQ_API_KEY
+        sync: false
+      - key: PUBLIC_URL
         sync: false
