@@ -10,9 +10,6 @@ The difference that matters for "Beyond APIs":
   can do, accepts A2A Messages, manages a stateful Task, and keeps its own
   reasoning opaque to the agent that calls it.
 
-Agentforce (or any A2A client) discovers this agent via its Agent Card at
-the well-known path, then delegates a task to it as an equal.
-
 Reasoning powered by Groq (free) using an open-source Llama model.
 """
 
@@ -22,7 +19,7 @@ from groq import Groq
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
-from a2a.helpers.proto_helpers import new_text_part
+from a2a.helpers.proto_helpers import new_text_part, new_task_from_user_message
 
 # Groq client — the external agent's own reasoning engine
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
@@ -61,23 +58,31 @@ def reason_about_recommendations(guest_request: str) -> str:
 
 class LocalConciergeExecutor(AgentExecutor):
     """
-    The A2A executor. This is where an incoming A2A task gets handled.
-    The protocol hands us the peer agent's message; we reason and respond
-    by completing the task with an agent message.
+    The A2A executor. Where an incoming A2A task gets handled.
+    The protocol hands us the peer agent's message; we register a Task, reason,
+    and complete the Task with an agent message.
     """
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         # The natural-language request the peer agent sent us
         user_message = context.get_user_input()
 
+        # The A2A protocol requires an actual Task to be enqueued before any
+        # status-update events. If this is a fresh request (no current task),
+        # build one from the incoming message and enqueue it first.
+        task = context.current_task
+        if task is None:
+            task = new_task_from_user_message(context.message)
+            await event_queue.enqueue_event(task)
+
         # A TaskUpdater publishes status + results for this task/context
         updater = TaskUpdater(
             event_queue=event_queue,
-            task_id=context.task_id,
-            context_id=context.context_id,
+            task_id=task.id,
+            context_id=task.context_id,
         )
 
-        # Signal that we've started working on the task
+        # Signal that we've started working on the (now-registered) task
         await updater.start_work()
 
         # Do our own independent reasoning (opaque to the caller)
